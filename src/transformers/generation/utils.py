@@ -2536,7 +2536,8 @@ class GenerationMixin:
                         else (outputs.hidden_states,)
                     )
 
-            # argmax
+            # argmax, actually the guy that picks the most likely token. Probably it talks in plural because there are
+            # models that allow two sentences as inputs.
             next_tokens = torch.argmax(next_tokens_scores, dim=-1)
 
             # finished sentences should have their next token be a padding token
@@ -2554,13 +2555,35 @@ class GenerationMixin:
             )
 
             # if eos_token was found in one sentence, set sentence to finished
+            # Here is the key:
+            _s = eos_token_id_tensor.shape[0]  # 3
+            _tile = next_tokens.tile(_s, 1)  # replicate the next_tokens to match eos_token len tensor([[11], [11], [11]])
+            _u = eos_token_id_tensor.unsqueeze(1)  # make a vertical vector to be able to multiply: tensor([[5146], [284], [423]])
+            _ne = _tile.ne(_u)  # Not equal
+            _prod = _ne.prod(dim=0)  # Multiply trues & falses to get 0 | 1
+            _mul = unfinished_sequences.mul(_prod)  # fill
+
+            # unfinished_sequences: represents a binary indicator for whether a sequence is finished
+            # Typically, a value of 1 means unfinished, and 0 means finished.
+            # Basically the bit here checks whether the `next_tokens` has a matching pair in the `eos_token_id_tensor`.
+            # So somehow, we will need to keep track of the previous generated tokens.
+            # It may well be that people got used to define eos_tokens to have any of them as stop token.
             if eos_token_id_tensor is not None:
-                unfinished_sequences = unfinished_sequences.mul(
-                    next_tokens.tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0)
-                )
+                # build a tensor
+                s = eos_token_id_tensor.shape[0]
+                last_predicted_tokens = input_ids[0][-s:]
+
+                # TODO: last_predicted_tokens may well be shorter than the eos_token_id_tensor. fill a tensor with zeroes in that case
+
+                positive_match = last_predicted_tokens.eq(eos_token_id_tensor).sum() == eos_token_id_tensor.shape[0]
+                unfinished_sequences = (positive_match.sum() != 1).sum(dim=0)
+
+                # unfinished_sequences = unfinished_sequences.mul(
+                #     next_tokens.tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0)
+                # )
 
                 # stop when each sentence is finished
-                if unfinished_sequences.max() == 0:
+                if unfinished_sequences.max() == 0:  # This guy fetchs the max in the whole array, outputs something like tensor(0)
                     this_peer_finished = True
 
             # stop if we exceed the maximum length

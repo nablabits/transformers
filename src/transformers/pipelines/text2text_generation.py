@@ -99,12 +99,24 @@ class Text2TextGenerationPipeline(Pipeline):
 
         if stop_sequence is not None:
             stop_sequence_ids = self.tokenizer.encode(stop_sequence, add_special_tokens=False)
+            # Chances are this is working with the changes introduced in
+            # https://github.com/huggingface/transformers/pull/20727
+            # but some tweaks should be introduced.
+            """
+            from transformers import GPT2Tokenizer, GPT2LMHeadModel
+            gpt2_tokenizer = GPT2Tokenizer.from_pretrained("hf-internal-testing/tiny-random-gpt2")
+            gpt2_model = GPT2LMHeadModel.from_pretrained("hf-internal-testing/tiny-random-gpt2")
+            input_ids = gpt2_tokenizer(prompt, return_tensors="pt").input_ids
+            stop_token_ids = gpt2_tokenizer.encode(" fe")
+            gpt2_model.generate(input_ids=input_ids, eos_token_id=stop_token_ids)
+            gpt2_tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            """
             if len(stop_sequence_ids) > 1:
                 warnings.warn(
                     "Stopping on a multiple token sequence is not yet supported on transformers. The first token of"
                     " the stop sequence will be used as the stop sequence string in the interim."
                 )
-            generate_kwargs["eos_token_id"] = stop_sequence_ids[0]
+            generate_kwargs["eos_token_id"] = stop_sequence_ids
 
         return preprocess_params, forward_params, postprocess_params
 
